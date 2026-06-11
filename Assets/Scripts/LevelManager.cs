@@ -7,7 +7,7 @@ using System.Text.RegularExpressions;
 
 
 public class LevelManager : MonoBehaviour {
-	private const float LoadSceneDelay = 1f;
+	private const float DefaultLoadDelay = 1f;
 
 	public bool hurryUp;
 	public int marioSize; // 0=small, 1=big, 2=fire
@@ -356,7 +356,7 @@ public class LevelManager : MonoBehaviour {
 
 
 	/****************** Scene loading */
-	void LoadSceneDelay(string sceneName, float delay = LoadSceneDelay) {
+	void LoadSceneDelay(string sceneName, float delay = DefaultLoadDelay) {
 		timerPaused = true;
 		StartCoroutine (LoadSceneDelayCo (sceneName, delay));
 	}
@@ -376,33 +376,33 @@ public class LevelManager : MonoBehaviour {
 		SceneManager.LoadScene (sceneName);
 	}
 
-	public void LoadNewLevel(string sceneName, float delay = LoadSceneDelay) {
+	public void LoadNewLevel(string sceneName, float delay = DefaultLoadDelay) {
 		t_GameStateManager.SaveGameState ();
 		t_GameStateManager.ConfigNewLevel ();
 		t_GameStateManager.sceneToLoad = sceneName;
 		LoadSceneDelay ("Level Start Screen", delay);
 	}
 
-	public void LoadSceneCurrentLevel(string sceneName, float delay = LoadSceneDelay) {
+	public void LoadSceneCurrentLevel(string sceneName, float delay = DefaultLoadDelay) {
 		t_GameStateManager.SaveGameState ();
 		t_GameStateManager.ResetSpawnPosition ();
 		LoadSceneDelay (sceneName, delay);
 	}
 
-	public void LoadSceneCurrentLevelSetSpawnPipe(string sceneName, int spawnPipeIdx, float delay = LoadSceneDelay) {
+	public void LoadSceneCurrentLevelSetSpawnPipe(string sceneName, int spawnPipeIdx, float delay = DefaultLoadDelay) {
 		t_GameStateManager.SaveGameState ();
 		t_GameStateManager.SetSpawnPipe (spawnPipeIdx);
 		LoadSceneDelay (sceneName, delay);
 	}
 
-	public void ReloadCurrentLevel(float delay = LoadSceneDelay, bool timeup = false) {
+	public void ReloadCurrentLevel(float delay = DefaultLoadDelay, bool timeup = false) {
 		t_GameStateManager.SaveGameState ();
 		t_GameStateManager.ConfigReplayedLevel ();
 		t_GameStateManager.sceneToLoad = SceneManager.GetActiveScene ().name;
 		LoadSceneDelay (timeup ? "Time Up Screen" : "Level Start Screen", delay);
 	}
 
-	public void LoadGameOver(float delay = LoadSceneDelay, bool timeup = false) {
+	public void LoadGameOver(float delay = DefaultLoadDelay, bool timeup = false) {
 		t_GameStateManager.UpdateHighScore (scores);
 		t_GameStateManager.timeup = timeup;
 		LoadSceneDelay ("Game Over Screen", delay);
