@@ -1,4 +1,4 @@
-﻿using System.Collections;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -15,7 +15,7 @@ public class GameStateManager : MonoBehaviour {
 	public float timeLeft;
 	public bool hurryUp;
 
-	public string sceneToLoad; // what scene to load after level start screen finishes?
+	public string sceneToLoad;
 	public bool timeup;
 
 	void Awake () {
@@ -26,7 +26,7 @@ public class GameStateManager : MonoBehaviour {
 			Destroy (gameObject);
 		}
 	}
-	
+
 	public void ResetSpawnPosition() {
 		spawnFromPoint = true;
 		spawnPointIdx = 0;
@@ -56,7 +56,7 @@ public class GameStateManager : MonoBehaviour {
 		ResetSpawnPosition ();
 	}
 
-	public void ConfigReplayedLevel() { // e.g. Mario respawns
+	public void ConfigReplayedLevel() {
 		timeLeft = 400.5f;
 		hurryUp = false;
 	}
@@ -64,11 +64,20 @@ public class GameStateManager : MonoBehaviour {
 	public void SaveGameState() {
 		LevelManager t_LevelManager = FindObjectOfType<LevelManager> ();
 		marioSize = t_LevelManager.marioSize;
-		lives = t_LevelManager.lives;
-		coins = t_LevelManager.coins;
-		scores = t_LevelManager.scores;
-		timeLeft = t_LevelManager.timeLeft;
-		hurryUp = t_LevelManager.hurryUp;
+		lives     = t_LevelManager.lives;
+		coins     = t_LevelManager.coins;
+		scores    = t_LevelManager.scores;
+		timeLeft  = t_LevelManager.timeLeft;
+		hurryUp   = t_LevelManager.hurryUp;
+
+		// Keep the stored high score current throughout the session, not only on game over
+		UpdateHighScore (scores);
 	}
 
+	// Centralised high-score update so both SaveGameState and LoadGameOver can call it
+	public void UpdateHighScore(int currentScore) {
+		if (currentScore > PlayerPrefs.GetInt ("highScore", 0)) {
+			PlayerPrefs.SetInt ("highScore", currentScore);
+		}
+	}
 }

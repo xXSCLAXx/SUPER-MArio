@@ -1,4 +1,4 @@
-﻿using System.Collections;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
@@ -7,10 +7,10 @@ using System.Text.RegularExpressions;
 
 
 public class LevelManager : MonoBehaviour {
-	private const float loadSceneDelay = 1f;
+	private const float LoadSceneDelay = 1f;
 
-	public bool hurryUp; // within last 100 secs?
-	public int marioSize; // 0..2
+	public bool hurryUp;
+	public int marioSize; // 0=small, 1=big, 2=fire
 	public int lives;
 	public int coins;
 	public int scores;
@@ -22,9 +22,9 @@ public class LevelManager : MonoBehaviour {
 
 	public bool isInvinciblePowerdown;
 	public bool isInvincibleStarman;
-	private float MarioInvinciblePowerdownDuration = 2;
-	private float MarioInvincibleStarmanDuration = 12;
-	private float transformDuration = 1;
+	private const float MarioInvinciblePowerdownDuration = 2f;
+	private const float MarioInvincibleStarmanDuration = 12f;
+	private const float TransformDuration = 1f;
 
 	private GameStateManager t_GameStateManager;
 	private Mario mario;
@@ -35,7 +35,7 @@ public class LevelManager : MonoBehaviour {
 	public Text coinText;
 	public Text timeText;
 	public GameObject FloatingTextEffect;
-	private const float floatingTextOffsetY = 2f;
+	private const float FloatingTextOffsetY = 2f;
 
 	public AudioSource musicSource;
 	public AudioSource soundSource;
@@ -66,11 +66,16 @@ public class LevelManager : MonoBehaviour {
 	public AudioClip stompSound;
 	public AudioClip warningSound;
 
-	public int coinBonus = 200;
-	public int powerupBonus = 1000;
-	public int starmanBonus = 1000;
-	public int oneupBonus = 0;
+	public int coinBonus      = 200;
+	public int powerupBonus   = 1000;
+	public int starmanBonus   = 1000;
+	public int oneupBonus     = 0;
 	public int breakBlockBonus = 50;
+
+	// Aerial stomp combo: each consecutive stomp before landing gives increasing points.
+	// After 8 stomps the player earns a 1-UP, matching original SMB behaviour.
+	private int stompCombo = 0;
+	private static readonly int[] StompComboBonuses = { 100, 200, 400, 800, 1000, 2000, 4000, 8000 };
 
 	public Vector2 stompBounceVelocity = new Vector2 (0, 15);
 
@@ -81,11 +86,11 @@ public class LevelManager : MonoBehaviour {
 
 	void Awake() {
 		Time.timeScale = 1;
+		// Cache early so FindSpawnPosition works even when called from other Start()s
+		t_GameStateManager = FindObjectOfType<GameStateManager>();
 	}
 
-	// Use this for initialization
 	void Start () {
-		t_GameStateManager = FindObjectOfType<GameStateManager>();
 		RetrieveGameState ();
 
 		mario = FindObjectOfType<Mario> ();
@@ -93,49 +98,37 @@ public class LevelManager : MonoBehaviour {
 		mario_Rigidbody2D = mario.gameObject.GetComponent<Rigidbody2D> ();
 		mario.UpdateSize ();
 
-		// Sound volume
-		musicSource.volume = PlayerPrefs.GetFloat("musicVolume");
-		soundSource.volume = PlayerPrefs.GetFloat("soundVolume");
-		pauseSoundSource.volume = PlayerPrefs.GetFloat("soundVolume");
+		musicSource.volume = PlayerPrefs.GetFloat("musicVolume", 1f);
+		soundSource.volume = PlayerPrefs.GetFloat("soundVolume", 1f);
+		pauseSoundSource.volume = PlayerPrefs.GetFloat("soundVolume", 1f);
 
-		// HUD
 		SetHudCoin ();
 		SetHudScore ();
 		SetHudTime ();
-		if (hurryUp) {
-			ChangeMusic (levelMusicHurry);
-		} else {
-			ChangeMusic (levelMusic);
-		}
-
-		Debug.Log (this.name + " Start: current scene is " + SceneManager.GetActiveScene ().name);
+		ChangeMusic (hurryUp ? levelMusicHurry : levelMusic);
 	}
 
 	void RetrieveGameState() {
 		marioSize = t_GameStateManager.marioSize;
-		lives = t_GameStateManager.lives;
-		coins = t_GameStateManager.coins;
-		scores = t_GameStateManager.scores;
-		timeLeft = t_GameStateManager.timeLeft;
-		hurryUp = t_GameStateManager.hurryUp;
+		lives     = t_GameStateManager.lives;
+		coins     = t_GameStateManager.coins;
+		scores    = t_GameStateManager.scores;
+		timeLeft  = t_GameStateManager.timeLeft;
+		hurryUp   = t_GameStateManager.hurryUp;
 	}
 
 
 	/****************** Timer */
 	void Update() {
 		if (!timerPaused) {
-			timeLeft -= Time.deltaTime / .4f; // 1 game sec ~ 0.4 real time sec
+			timeLeft -= Time.deltaTime / .4f; // 1 game-sec ≈ 0.4 real-time sec
 			SetHudTime ();
 		}
 
 		if (timeLeftInt < 100 && !hurryUp) {
 			hurryUp = true;
 			PauseMusicPlaySound (warningSound, true);
-			if (isInvincibleStarman) {
-				ChangeMusic (starmanMusicHurry, warningSound.length);
-			} else {
-				ChangeMusic (levelMusicHurry, warningSound.length);
-			}
+			ChangeMusic (isInvincibleStarman ? starmanMusicHurry : levelMusicHurry, warningSound.length);
 		}
 
 		if (timeLeftInt <= 0) {
@@ -149,7 +142,6 @@ public class LevelManager : MonoBehaviour {
 				StartCoroutine (UnpauseGameCo ());
 			}
 		}
-
 	}
 
 
@@ -168,7 +160,7 @@ public class LevelManager : MonoBehaviour {
 		musicPaused = true;
 		soundSource.Pause ();
 
-		// Set any active animators that use unscaled time mode to normal
+		// Animators running in UnscaledTime would still advance while paused — switch to Normal
 		unscaledAnimators.Clear();
 		foreach (Animator animator in FindObjectsOfType<Animator>()) {
 			if (animator.updateMode == AnimatorUpdateMode.UnscaledTime) {
@@ -179,7 +171,6 @@ public class LevelManager : MonoBehaviour {
 
 		pauseSoundSource.Play();
 		yield return new WaitForSecondsRealtime (pauseSoundSource.clip.length);
-		Debug.Log (this.name + " PauseGameCo stops: records prevTimeScale=" + pauseGamePrevTimeScale.ToString());
 	}
 
 	IEnumerator UnpauseGameCo() {
@@ -192,7 +183,6 @@ public class LevelManager : MonoBehaviour {
 		}
 		soundSource.UnPause ();
 
-		// Reset animators
 		foreach (Animator animator in unscaledAnimators) {
 			animator.updateMode = AnimatorUpdateMode.UnscaledTime;
 		}
@@ -200,7 +190,6 @@ public class LevelManager : MonoBehaviour {
 
 		Time.timeScale = pauseGamePrevTimeScale;
 		gamePaused = false;
-		Debug.Log (this.name + " UnpauseGameCo stops: resume prevTimeScale=" + pauseGamePrevTimeScale.ToString());
 	}
 
 
@@ -218,20 +207,12 @@ public class LevelManager : MonoBehaviour {
 		isInvincibleStarman = true;
 		mario_Animator.SetBool ("isInvincibleStarman", true);
 		mario.gameObject.layer = LayerMask.NameToLayer ("Mario After Starman");
-		if (hurryUp) {
-			ChangeMusic (starmanMusicHurry);
-		} else {
-			ChangeMusic (starmanMusic);
-		}
+		ChangeMusic (hurryUp ? starmanMusicHurry : starmanMusic);
 		yield return new WaitForSeconds (MarioInvincibleStarmanDuration);
 		isInvincibleStarman = false;
 		mario_Animator.SetBool ("isInvincibleStarman", false);
 		mario.gameObject.layer = LayerMask.NameToLayer ("Mario");
-		if (hurryUp) {
-			ChangeMusic (levelMusicHurry);
-		} else {
-			ChangeMusic (levelMusic);
-		}
+		ChangeMusic (hurryUp ? levelMusicHurry : levelMusic);
 	}
 
 	void MarioInvinciblePowerdown() {
@@ -251,7 +232,7 @@ public class LevelManager : MonoBehaviour {
 
 	/****************** Powerup / Powerdown / Die */
 	public void MarioPowerUp() {
-		soundSource.PlayOneShot (powerupSound); // should play sound regardless of size
+		soundSource.PlayOneShot (powerupSound);
 		if (marioSize < 2) {
 			StartCoroutine (MarioPowerUpCo ());
 		}
@@ -263,7 +244,7 @@ public class LevelManager : MonoBehaviour {
 		Time.timeScale = 0f;
 		mario_Animator.updateMode = AnimatorUpdateMode.UnscaledTime;
 
-		yield return new WaitForSecondsRealtime (transformDuration);
+		yield return new WaitForSecondsRealtime (TransformDuration);
 		yield return new WaitWhile(() => gamePaused);
 
 		Time.timeScale = 1;
@@ -276,7 +257,6 @@ public class LevelManager : MonoBehaviour {
 
 	public void MarioPowerDown() {
 		if (!isPoweringDown) {
-			Debug.Log (this.name + " MarioPowerDown: called and executed");
 			isPoweringDown = true;
 
 			if (marioSize > 0) {
@@ -285,9 +265,6 @@ public class LevelManager : MonoBehaviour {
 			} else {
 				MarioRespawn ();
 			}
-			Debug.Log (this.name + " MarioPowerDown: done executing");
-		} else {
-			Debug.Log (this.name + " MarioPowerDown: called but not executed");
 		}
 	}
 
@@ -296,7 +273,7 @@ public class LevelManager : MonoBehaviour {
 		Time.timeScale = 0f;
 		mario_Animator.updateMode = AnimatorUpdateMode.UnscaledTime;
 
-		yield return new WaitForSecondsRealtime (transformDuration);
+		yield return new WaitForSecondsRealtime (TransformDuration);
 		yield return new WaitWhile(() => gamePaused);
 
 		Time.timeScale = 1;
@@ -324,121 +301,109 @@ public class LevelManager : MonoBehaviour {
 			Time.timeScale = 0f;
 			mario.FreezeAndDie ();
 
-			if (timeup) {
-				Debug.Log(this.name + " MarioRespawn: called due to timeup");
-			}
-			Debug.Log (this.name + " MarioRespawn: lives left=" + lives.ToString ());
-
 			if (lives > 0) {
 				ReloadCurrentLevel (deadSound.length, timeup);
 			} else {
 				LoadGameOver (deadSound.length, timeup);
-				Debug.Log(this.name + " MarioRespawn: all dead");
 			}
 		}
 	}
-		
 
-	/****************** Kill enemy */
+
+	/****************** Enemy kills */
 	public void MarioStompEnemy(Enemy enemy) {
 		mario_Rigidbody2D.velocity = new Vector2 (mario_Rigidbody2D.velocity.x + stompBounceVelocity.x, stompBounceVelocity.y);
 		enemy.StompedByMario ();
 		soundSource.PlayOneShot (stompSound);
-		AddScore (enemy.stompBonus, enemy.gameObject.transform.position);
-		Debug.Log (this.name + " MarioStompEnemy called on " + enemy.gameObject.name);
+
+		// Combo scoring: each consecutive aerial stomp increases the bonus.
+		// After 8 stomps the player earns a 1-UP (original SMB behaviour).
+		if (stompCombo >= StompComboBonuses.Length) {
+			AddLife (enemy.gameObject.transform.position);
+		} else {
+			AddScore (StompComboBonuses[stompCombo], enemy.gameObject.transform.position);
+		}
+		stompCombo++;
+	}
+
+	// Called by Mario when it lands on the ground, resetting the aerial combo chain.
+	public void ResetStompCombo() {
+		stompCombo = 0;
 	}
 
 	public void MarioStarmanTouchEnemy(Enemy enemy) {
 		enemy.TouchedByStarmanMario ();
 		soundSource.PlayOneShot (kickSound);
 		AddScore (enemy.starmanBonus, enemy.gameObject.transform.position);
-		Debug.Log (this.name + " MarioStarmanTouchEnemy called on " + enemy.gameObject.name);
 	}
 
 	public void RollingShellTouchEnemy(Enemy enemy) {
 		enemy.TouchedByRollingShell ();
 		soundSource.PlayOneShot (kickSound);
 		AddScore (enemy.rollingShellBonus, enemy.gameObject.transform.position);
-		Debug.Log (this.name + " RollingShellTouchEnemy called on " + enemy.gameObject.name);
 	}
 
 	public void BlockHitEnemy(Enemy enemy) {
 		enemy.HitBelowByBlock ();
 		AddScore (enemy.hitByBlockBonus, enemy.gameObject.transform.position);
-		Debug.Log (this.name + " BlockHitEnemy called on " + enemy.gameObject.name);
 	}
 
 	public void FireballTouchEnemy(Enemy enemy) {
 		enemy.HitByMarioFireball ();
 		soundSource.PlayOneShot (kickSound);
 		AddScore (enemy.fireballBonus, enemy.gameObject.transform.position);
-		Debug.Log (this.name + " FireballTouchEnemy called on " + enemy.gameObject.name);
 	}
 
+
 	/****************** Scene loading */
-	void LoadSceneDelay(string sceneName, float delay = loadSceneDelay) {
+	void LoadSceneDelay(string sceneName, float delay = LoadSceneDelay) {
 		timerPaused = true;
 		StartCoroutine (LoadSceneDelayCo (sceneName, delay));
 	}
 
 	IEnumerator LoadSceneDelayCo(string sceneName, float delay) {
-		Debug.Log (this.name + " LoadSceneDelayCo: starts loading " + sceneName);
-
 		float waited = 0;
 		while (waited < delay) {
-			if (!gamePaused) { // should not count delay while game paused
+			if (!gamePaused) {
 				waited += Time.unscaledDeltaTime;
 			}
 			yield return null;
 		}
 		yield return new WaitWhile (() => gamePaused);
 
-		Debug.Log (this.name + " LoadSceneDelayCo: done loading " + sceneName);
-
 		isRespawning = false;
 		isPoweringDown = false;
 		SceneManager.LoadScene (sceneName);
 	}
 
-	public void LoadNewLevel(string sceneName, float delay = loadSceneDelay) {
+	public void LoadNewLevel(string sceneName, float delay = LoadSceneDelay) {
 		t_GameStateManager.SaveGameState ();
 		t_GameStateManager.ConfigNewLevel ();
 		t_GameStateManager.sceneToLoad = sceneName;
 		LoadSceneDelay ("Level Start Screen", delay);
 	}
 
-	public void LoadSceneCurrentLevel(string sceneName, float delay = loadSceneDelay) {
+	public void LoadSceneCurrentLevel(string sceneName, float delay = LoadSceneDelay) {
 		t_GameStateManager.SaveGameState ();
-		t_GameStateManager.ResetSpawnPosition (); // TODO
+		t_GameStateManager.ResetSpawnPosition ();
 		LoadSceneDelay (sceneName, delay);
 	}
 
-	public void LoadSceneCurrentLevelSetSpawnPipe(string sceneName, int spawnPipeIdx, float delay = loadSceneDelay) {
+	public void LoadSceneCurrentLevelSetSpawnPipe(string sceneName, int spawnPipeIdx, float delay = LoadSceneDelay) {
 		t_GameStateManager.SaveGameState ();
 		t_GameStateManager.SetSpawnPipe (spawnPipeIdx);
 		LoadSceneDelay (sceneName, delay);
-		Debug.Log (this.name + " LoadSceneCurrentLevelSetSpawnPipe: supposed to load " + sceneName 
-			+ ", spawnPipeIdx=" + spawnPipeIdx.ToString () + "; actual GSM spawnFromPoint=" 
-			+ t_GameStateManager.spawnFromPoint.ToString () + ", spawnPipeIdx=" 
-			+ t_GameStateManager.spawnPipeIdx.ToString ());
 	}
 
-	public void ReloadCurrentLevel(float delay = loadSceneDelay, bool timeup = false) {
+	public void ReloadCurrentLevel(float delay = LoadSceneDelay, bool timeup = false) {
 		t_GameStateManager.SaveGameState ();
 		t_GameStateManager.ConfigReplayedLevel ();
 		t_GameStateManager.sceneToLoad = SceneManager.GetActiveScene ().name;
-		if (timeup) {
-			LoadSceneDelay ("Time Up Screen", delay);
-		} else {
-			LoadSceneDelay ("Level Start Screen", delay);
-		}
+		LoadSceneDelay (timeup ? "Time Up Screen" : "Level Start Screen", delay);
 	}
 
-	public void LoadGameOver(float delay = loadSceneDelay, bool timeup = false) {
-		int currentHighScore = PlayerPrefs.GetInt ("highScore", 0);
-		if (scores > currentHighScore) {
-			PlayerPrefs.SetInt ("highScore", scores);
-		}
+	public void LoadGameOver(float delay = LoadSceneDelay, bool timeup = false) {
+		t_GameStateManager.UpdateHighScore (scores);
 		t_GameStateManager.timeup = timeup;
 		LoadSceneDelay ("Game Over Screen", delay);
 	}
@@ -469,7 +434,6 @@ public class LevelManager : MonoBehaviour {
 	}
 
 	IEnumerator ChangeMusicCo(AudioClip clip, float delay) {
-		Debug.Log (this.name + " ChangeMusicCo: starts changing music to " + clip.name);
 		musicSource.clip = clip;
 		yield return new WaitWhile (() => gamePaused);
 		yield return new WaitForSecondsRealtime (delay);
@@ -477,7 +441,6 @@ public class LevelManager : MonoBehaviour {
 		if (!isRespawning) {
 			musicSource.Play ();
 		}
-		Debug.Log (this.name + " ChangeMusicCo: done changing music to " + clip.name);
 	}
 
 	public void PauseMusicPlaySound(AudioClip clip, bool resumeMusic) {
@@ -485,29 +448,16 @@ public class LevelManager : MonoBehaviour {
 	}
 
 	IEnumerator PauseMusicPlaySoundCo(AudioClip clip, bool resumeMusic) {
-		string musicClipName = "";
-		if (musicSource.clip) {
-			musicClipName = musicSource.clip.name;
-		}
-		Debug.Log (this.name + " PausemusicPlaySoundCo: starts pausing music " + musicClipName + " to play sound " + clip.name);
-
 		musicPaused = true;
 		musicSource.Pause ();
 		soundSource.PlayOneShot (clip);
 		yield return new WaitForSeconds (clip.length);
 		if (resumeMusic) {
 			musicSource.UnPause ();
-
-			musicClipName = "";
-			if (musicSource.clip) {
-				musicClipName = musicSource.clip.name;
-			}
-			Debug.Log (this.name + " PausemusicPlaySoundCo: resume playing music " + musicClipName);
 		}
 		musicPaused = false;
-
-		Debug.Log (this.name + " PausemusicPlaySoundCo: done pausing music to play sound " + clip.name);
 	}
+
 
 	/****************** Game state */
 	public void AddLife() {
@@ -516,30 +466,28 @@ public class LevelManager : MonoBehaviour {
 	}
 
 	public void AddLife(Vector3 spawnPos) {
-		lives++;
-		soundSource.PlayOneShot (oneUpSound);
+		AddLife ();
 		CreateFloatingText ("1UP", spawnPos);
 	}
 
-	public void AddCoin() {
+	// Shared logic for both AddCoin overloads
+	private void IncrementCoin() {
 		coins++;
 		soundSource.PlayOneShot (coinSound);
-		if (coins == 100) {
+		if (coins >= 100) {
 			AddLife ();
 			coins = 0;
 		}
 		SetHudCoin ();
+	}
+
+	public void AddCoin() {
+		IncrementCoin ();
 		AddScore (coinBonus);
 	}
 
 	public void AddCoin(Vector3 spawnPos) {
-		coins++;
-		soundSource.PlayOneShot (coinSound);
-		if (coins == 100) {
-			AddLife ();
-			coins = 0;
-		}
-		SetHudCoin ();
+		IncrementCoin ();
 		AddScore (coinBonus, spawnPos);
 	}
 
@@ -559,17 +507,22 @@ public class LevelManager : MonoBehaviour {
 
 	/****************** Misc */
 	public Vector3 FindSpawnPosition() {
-		Vector3 spawnPosition;
-		GameStateManager t_GameStateManager = FindObjectOfType<GameStateManager>();
-		Debug.Log (this.name + " FindSpawnPosition: GSM spawnFromPoint=" + t_GameStateManager.spawnFromPoint.ToString()
-			+ " spawnPipeIdx= " + t_GameStateManager.spawnPipeIdx.ToString() 
-			+ " spawnPointIdx=" + t_GameStateManager.spawnPointIdx.ToString());
-		if (t_GameStateManager.spawnFromPoint) {
-			spawnPosition = GameObject.Find ("Spawn Points").transform.GetChild (t_GameStateManager.spawnPointIdx).transform.position;
+		// t_GameStateManager is cached in Awake; the null fallback guards against
+		// any edge-case where this is called before Awake completes.
+		GameStateManager gsm = t_GameStateManager != null
+			? t_GameStateManager
+			: FindObjectOfType<GameStateManager>();
+
+		if (gsm.spawnFromPoint) {
+			return GameObject.Find ("Spawn Points")
+				.transform.GetChild (gsm.spawnPointIdx)
+				.transform.position;
 		} else {
-			spawnPosition = GameObject.Find ("Spawn Pipes").transform.GetChild (t_GameStateManager.spawnPipeIdx).transform.Find("Spawn Pos").transform.position;
+			return GameObject.Find ("Spawn Pipes")
+				.transform.GetChild (gsm.spawnPipeIdx)
+				.transform.Find("Spawn Pos")
+				.transform.position;
 		}
-		return spawnPosition;
 	}
 
 	public string GetWorldName(string sceneName) {
